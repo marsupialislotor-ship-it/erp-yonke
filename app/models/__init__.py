@@ -1,0 +1,1 @@
+from app.models import user, inventory, orders, sales  # noqa: F401
