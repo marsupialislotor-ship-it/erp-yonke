@@ -1,23 +1,21 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import bcrypt
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from app.core.config import settings
 
-# ─── PASSWORD ─────────────────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    pwd_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-# ─── JWT ──────────────────────────────────────────────────────────────────────
 def create_access_token(data: dict[str, Any]) -> str:
     payload = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(
@@ -53,7 +51,6 @@ def decode_token(token: str) -> dict[str, Any]:
 
 
 def create_token_pair(user_id: str, role: str, branch_id: str) -> dict[str, Any]:
-    """Genera access + refresh token para un usuario."""
     base_data = {
         "sub":       user_id,
         "role":      role,
