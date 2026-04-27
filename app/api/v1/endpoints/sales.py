@@ -135,14 +135,6 @@ async def _build_items(db, items_in: list[SaleItemIn]) -> tuple[list[dict], floa
             raise HTTPException(
                 status_code=404, detail=f"Pieza {item.part_id} no encontrada"
             )
-        # Cargar sucursal si no está cargada
-        if part.branch_id and not hasattr(part, '_branch_loaded'):
-            from app.models.inventory import Branch
-            branch = await db.get(Branch, part.branch_id)
-            branch_name = branch.name if branch else ""
-        else:
-            branch_name = ""
-
         result_items.append({
             "part_id":      str(item.part_id),
             "part_key":     part.part_key,
@@ -153,7 +145,7 @@ async def _build_items(db, items_in: list[SaleItemIn]) -> tuple[list[dict], floa
             "has_warranty": item.has_warranty,
             "warranty_days":item.warranty_days,
             "branch_id":    str(part.branch_id) if part.branch_id else None,
-            "branch_name":  branch_name,
+            "branch_name":  "",  # se llena en la orden de desmonte desde la relación
             "vehicle_id":   str(part.vehicle_id) if part.vehicle_id else None,
         })
         total += item.unit_price
