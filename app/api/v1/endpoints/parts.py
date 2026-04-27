@@ -29,20 +29,19 @@ async def list_parts(
     limit:        int = Query(24, ge=1, le=100),
 ):
     stmt = (
-    select(Part)
-    .options(
-        selectinload(Part.condition),
-        selectinload(Part.media),
-        selectinload(Part.branch),
-        selectinload(Part.vehicle),
+        select(Part)
+        .options(
+            selectinload(Part.condition),
+            selectinload(Part.media),
+            selectinload(Part.branch),
+            selectinload(Part.vehicle),
+        )
+        .where(Part.deleted_at.is_(None))
     )
-    .where(Part.deleted_at.is_(None))
-)
 
-
-# Si no se especifica status, mostrar solo disponibles
-if not status:
-    stmt = stmt.where(Part.status.in_(['in_vehicle', 'in_stock']))
+    # Si no se especifica status, mostrar solo piezas disponibles
+    if not status:
+        stmt = stmt.where(Part.status.in_(['in_vehicle', 'in_stock']))
 
     # Filtros
     if q:
@@ -66,8 +65,6 @@ if not status:
         stmt = stmt.where(Part.sale_price >= price_min)
     if price_max is not None:
         stmt = stmt.where(Part.sale_price <= price_max)
-
-    # Filtro por sucursal
     if branch_id:
         stmt = stmt.where(Part.branch_id == branch_id)
 
@@ -109,12 +106,10 @@ async def get_part_by_qr(part_key: str, db: DbSession, current_user: CurrentUser
 # ─── POST /parts ──────────────────────────────────────────────────────────────
 @router.post("", response_model=PartDetail, status_code=status.HTTP_201_CREATED)
 async def create_part(body: PartCreate, db: DbSession, current_user: CurrentUser):
-    # Verificar que el vehículo existe
     vehicle = await db.get(Vehicle, body.vehicle_id)
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
 
-    # Generar part_key: VEH_KEY-P### (ej. VEH-2025-0042-P007)
     count_result = await db.execute(
         select(func.count()).where(Part.vehicle_id == body.vehicle_id)
     )
@@ -141,8 +136,6 @@ async def create_part(body: PartCreate, db: DbSession, current_user: CurrentUser
     )
     db.add(part)
     await db.flush()
-
-    # Recargar con relaciones
     await db.refresh(part, ["condition", "media", "branch", "vehicle"])
     await db.commit()
     return _part_to_detail(part)
@@ -150,7 +143,10 @@ async def create_part(body: PartCreate, db: DbSession, current_user: CurrentUser
 
 # ─── PATCH /parts/{id} ────────────────────────────────────────────────────────
 @router.patch("/{part_id}", response_model=PartDetail)
-async def update_part(part_id: uuid.UUID, body: PartUpdate, db: DbSession, current_user: CurrentUser):
+async def update_part(
+    part_id: uuid.UUID, body: PartUpdate,
+    db: DbSession, current_user: CurrentUser
+):
     part = await _get_part_or_404(db, part_id)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(part, field, value)
@@ -159,11 +155,13 @@ async def update_part(part_id: uuid.UUID, body: PartUpdate, db: DbSession, curre
     return _part_to_detail(part)
 
 
-# ─── GET /part-conditions ────────────────────────────────────────────────────
+# ─── GET /conditions ──────────────────────────────────────────────────────────
 @router.get("/conditions/all", response_model=list[PartConditionOut], tags=["catálogos"])
 async def list_conditions(db: DbSession, current_user: CurrentUser):
     result = await db.execute(
-        select(PartCondition).where(PartCondition.is_active.is_(True)).order_by(PartCondition.sort_order)
+        select(PartCondition)
+        .where(PartCondition.is_active.is_(True))
+        .order_by(PartCondition.sort_order)
     )
     return result.scalars().all()
 
