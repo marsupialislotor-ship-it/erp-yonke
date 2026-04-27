@@ -1,3 +1,8 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# ARCHIVO: backend/app/models/orders.py
+# CAMBIO: agregar sale_id (FK opcional a sales)
+# ══════════════════════════════════════════════════════════════════════════════
+
 import uuid
 import enum
 from datetime import datetime, timezone
@@ -29,6 +34,10 @@ class DisassemblyOrder(Base):
     part_id:          Mapped[uuid.UUID]      = mapped_column(UUID(as_uuid=True), ForeignKey("parts.id"), nullable=False, index=True)
     vehicle_id:       Mapped[uuid.UUID]      = mapped_column(UUID(as_uuid=True), ForeignKey("vehicles.id"), nullable=False)
     branch_id:        Mapped[uuid.UUID]      = mapped_column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False, index=True)
+
+    # ── NUEVO: referencia a la venta que originó esta orden ─────────────────
+    sale_id:          Mapped[uuid.UUID|None] = mapped_column(UUID(as_uuid=True), ForeignKey("sales.id"), nullable=True, index=True)
+
     status:           Mapped[OrderStatus]    = mapped_column(SAEnum(OrderStatus), nullable=False, default=OrderStatus.pending, index=True)
     priority:         Mapped[OrderPriority]  = mapped_column(SAEnum(OrderPriority), nullable=False, default=OrderPriority.normal)
     instructions:     Mapped[str | None]     = mapped_column(Text)
@@ -44,11 +53,12 @@ class DisassemblyOrder(Base):
     updated_at:       Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     # Relaciones
-    part:        Mapped["Part"]    = relationship("Part")       # type: ignore
-    vehicle:     Mapped["Vehicle"] = relationship("Vehicle")    # type: ignore
-    branch:      Mapped["Branch"]  = relationship("Branch")     # type: ignore
-    created_by:  Mapped["User"]    = relationship("User", foreign_keys=[created_by_id])   # type: ignore
-    assigned_to: Mapped["User|None"] = relationship("User", foreign_keys=[assigned_to_id]) # type: ignore
+    part:        Mapped["Part"]        = relationship("Part")
+    vehicle:     Mapped["Vehicle"]     = relationship("Vehicle")
+    branch:      Mapped["Branch"]      = relationship("Branch")
+    created_by:  Mapped["User"]        = relationship("User", foreign_keys=[created_by_id])
+    assigned_to: Mapped["User|None"]   = relationship("User", foreign_keys=[assigned_to_id])
+    sale:        Mapped["Sale|None"]   = relationship("Sale", foreign_keys=[sale_id])  # type: ignore
 
     @property
     def minutes_ago(self) -> int:
