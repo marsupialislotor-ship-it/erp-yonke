@@ -29,15 +29,20 @@ async def list_parts(
     limit:        int = Query(24, ge=1, le=100),
 ):
     stmt = (
-        select(Part)
-        .options(
-            selectinload(Part.condition),
-            selectinload(Part.media),
-            selectinload(Part.branch),
-            selectinload(Part.vehicle),
-        )
-        .where(Part.deleted_at.is_(None))
+    select(Part)
+    .options(
+        selectinload(Part.condition),
+        selectinload(Part.media),
+        selectinload(Part.branch),
+        selectinload(Part.vehicle),
     )
+    .where(Part.deleted_at.is_(None))
+)
+
+
+# Si no se especifica status, mostrar solo disponibles
+if not status:
+    stmt = stmt.where(Part.status.in_(['in_vehicle', 'in_stock']))
 
     # Filtros
     if q:
