@@ -1,11 +1,36 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# CAMBIO 1: backend/app/schemas/inventory.py
+# Reemplaza la clase VehicleCreate con esta versión
+# ══════════════════════════════════════════════════════════════════════════════
+
+# class VehicleCreate(BaseModel):
+#     branch_id:         UUID
+#     brand:             str
+#     model:             str
+#     year:              int
+#     color:             str | None = None
+#     purchase_origin:   str        = "private"   # default: particular
+#     purchase_cost:     float      = 0.0          # default: 0
+#     purchase_date:     datetime   | None = None  # default: hoy
+#     general_condition: str | None = None
+#     notes:             str | None = None
+#     seller_name:       str | None = None
+#     seller_phone:      str | None = None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CAMBIO 2: backend/app/api/v1/endpoints/vehicles.py
+# Reemplaza el archivo completo con este contenido
+# ══════════════════════════════════════════════════════════════════════════════
+
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
-from app.core.deps import CurrentUser, DbSession, OwnerOrAdmin
-from app.models.inventory import Vehicle, VehicleStatus, VehiclePhoto, Part
+from app.core.deps import CurrentUser, DbSession
+from app.models.inventory import Vehicle, VehicleStatus, VehiclePhoto, Part, PurchaseOrigin
 from app.schemas.inventory import VehicleCreate, VehicleOut
 
 router = APIRouter(prefix="/vehicles", tags=["vehículos"])
@@ -43,7 +68,6 @@ class PaginatedVehicles(BaseModel):
 
 
 async def _next_vehicle_key(db, branch_code: str = "VEH") -> str:
-    """Genera clave secuencial: VEH-YYYY-NNNN"""
     year = datetime.now().year
     result = await db.execute(
         select(func.count(Vehicle.id))
@@ -78,7 +102,10 @@ async def list_vehicles(
             Vehicle.vehicle_key.ilike(f"%{q}%"),
         ))
 
-    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    total = (await db.execute(
+        select(func.count()).select_from(stmt.subquery())
+    )).scalar_one()
+
     vehicles = (await db.execute(
         stmt.order_by(Vehicle.created_at.desc()).offset((page-1)*limit).limit(limit)
     )).scalars().all()
@@ -86,8 +113,10 @@ async def list_vehicles(
     items = [VehicleOut(
         id=v.id, vehicle_key=v.vehicle_key, branch_id=v.branch_id,
         brand=v.brand, model=v.model, year=v.year, color=v.color,
-        status=v.status.value, purchase_cost=float(v.purchase_cost),
-        purchase_date=v.purchase_date, notes=v.notes, created_at=v.created_at,
+        status=v.status.value,
+        purchase_cost=float(v.purchase_cost),
+        purchase_date=v.purchase_date,
+        notes=v.notes, created_at=v.created_at,
     ) for v in vehicles]
 
     return PaginatedVehicles(total=total, page=page, limit=limit, items=items)
@@ -96,8 +125,12 @@ async def list_vehicles(
 # ─── POST /vehicles ───────────────────────────────────────────────────────────
 @router.post("", response_model=VehicleOut, status_code=status.HTTP_201_CREATED)
 async def create_vehicle(body: VehicleCreate, db: DbSession, current_user: CurrentUser):
-    from app.models.inventory import PurchaseOrigin
     vehicle_key = await _next_vehicle_key(db)
+
+    # Campos opcionales con defaults
+    purchase_origin = PurchaseOrigin(body.purchase_origin) if body.purchase_origin else PurchaseOrigin.private
+    purchase_cost   = body.purchase_cost if body.purchase_cost is not None else 0.0
+    purchase_date   = body.purchase_date if body.purchase_date else datetime.now(timezone.utc)
 
     vehicle = Vehicle(
         vehicle_key=vehicle_key,
@@ -106,9 +139,9 @@ async def create_vehicle(body: VehicleCreate, db: DbSession, current_user: Curre
         model=body.model,
         year=body.year,
         color=body.color,
-        purchase_origin=PurchaseOrigin(body.purchase_origin),
-        purchase_cost=body.purchase_cost,
-        purchase_date=body.purchase_date,
+        purchase_origin=purchase_origin,
+        purchase_cost=purchase_cost,
+        purchase_date=purchase_date,
         status=VehicleStatus.complete,
         general_condition=body.general_condition,
         notes=body.notes,
@@ -123,8 +156,10 @@ async def create_vehicle(body: VehicleCreate, db: DbSession, current_user: Curre
     return VehicleOut(
         id=vehicle.id, vehicle_key=vehicle.vehicle_key, branch_id=vehicle.branch_id,
         brand=vehicle.brand, model=vehicle.model, year=vehicle.year, color=vehicle.color,
-        status=vehicle.status.value, purchase_cost=float(vehicle.purchase_cost),
-        purchase_date=vehicle.purchase_date, notes=vehicle.notes, created_at=vehicle.created_at,
+        status=vehicle.status.value,
+        purchase_cost=float(vehicle.purchase_cost),
+        purchase_date=vehicle.purchase_date,
+        notes=vehicle.notes, created_at=vehicle.created_at,
     )
 
 

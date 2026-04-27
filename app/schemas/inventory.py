@@ -141,22 +141,19 @@ class PaginatedParts(BaseModel):
     limit: int
     items: list[PartListItem]
 
-
-# ─── VEHICLE ──────────────────────────────────────────────────────────────────
 class VehicleCreate(BaseModel):
     branch_id:         UUID
     brand:             str
     model:             str
     year:              int
     color:             str | None = None
-    purchase_origin:   str        # auction | private
-    purchase_cost:     float
-    purchase_date:     datetime
+    purchase_origin:   str        = "private"
+    purchase_cost:     float      = 0.0
+    purchase_date:     datetime   | None = None
     general_condition: str | None = None
     notes:             str | None = None
     seller_name:       str | None = None
     seller_phone:      str | None = None
-
 
 class VehicleOut(BaseModel):
     id:           UUID
