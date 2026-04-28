@@ -163,3 +163,17 @@ async def change_password(user_id: uuid.UUID, body: PasswordChange, db: DbSessio
     user.password_hash = hash_password(body.new_password)
     await db.commit()
     return {"message": "Contraseña actualizada"}
+
+
+# ─── POST /users/me/fcm-token ─────────────────────────────────────────────────
+class FcmTokenUpdate(BaseModel):
+    fcm_token: str
+
+@router.post("/me/fcm-token", status_code=status.HTTP_204_NO_CONTENT)
+async def update_fcm_token(
+    body: FcmTokenUpdate, db: DbSession, current_user: CurrentUser
+):
+    user = await db.get(User, current_user.id)
+    if user:
+        user.fcm_token = body.fcm_token
+        await db.commit()
