@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.core.deps import CurrentUser, DbSession
 from app.models.orders import DisassemblyOrder, OrderStatus, OrderPriority
 from app.models.inventory import Part, PartStatus, PartStatusHistory
+from app.models.user import User
 
 router = APIRouter(prefix="/disassembly-orders", tags=["órdenes de desmonte"])
 
@@ -166,7 +167,42 @@ async def create_order(body: OrderCreate, db: DbSession, current_user: CurrentUs
     result = await db.execute(
         select(DisassemblyOrder).options(*_order_opts()).where(DisassemblyOrder.id == order.id)
     )
-    return _order_out(result.scalar_one())
+    order_out = _order_out(result.scalar_one())
+
+    # ── Enviar notificación a mecánicos y ayudantes de la sucursal ──────────
+    try:
+        from app.core.firebase import send_notification
+        from app.models.user import UserRole
+
+        # Obtener tokens FCM de mecánicos y ayudantes de esa sucursal
+        mechanics = await db.execute(
+            select(User).where(
+                User.branch_id == body.branch_id,
+                User.role.in_([UserRole.mechanic, UserRole.helper]),
+                User.is_active.is_(True),
+                User.fcm_token.isnot(None),
+            )
+        )
+        tokens = [u.fcm_token for u in mechanics.scalars().all()]
+
+        if tokens:
+            is_urgent = body.priority == "urgent"
+            await send_notification(
+                fcm_tokens=tokens,
+                title="🔧 Nueva orden de desmonte" + (" 🚨 URGENTE" if is_urgent else ""),
+                body=f"{part.name} — {order_key}",
+                data={
+                    "order_id": str(order.id),
+                    "order_key": order_key,
+                    "type": "new_order",
+                },
+                is_urgent=is_urgent,
+            )
+    except Exception as e:
+        print(f"Error enviando notificación: {e}")
+        # No interrumpir el flujo si falla la notificación
+
+    return order_out
 
 
 # ─── POST /disassembly-orders/{id}/take ───────────────────────────────────────
