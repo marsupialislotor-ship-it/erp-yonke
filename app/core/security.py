@@ -60,5 +60,5 @@ def create_token_pair(user_id: str, role: str, branch_id: str) -> dict[str, Any]
         "access_token":  create_access_token(base_data),
         "refresh_token": create_refresh_token({"sub": user_id}),
         "token_type":    "bearer",
-        "expires_in":    settings.jwt_access_token_expire_minutes * 60,
+        "expires_in":    settings.jwt_access_token_expire_minutes * 1,
     }
