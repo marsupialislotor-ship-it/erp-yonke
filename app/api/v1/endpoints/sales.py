@@ -153,27 +153,78 @@ async def _build_items(db, items_in: list[SaleItemIn]) -> tuple[list[dict], floa
 
 
 async def _create_disassembly_orders(
-    db, items, sale_id, created_by_id, is_urgent=False
+    db,
+    items: list[dict],
+    sale_id: uuid.UUID,
+    created_by_id: uuid.UUID,
+    is_urgent: bool = False,
 ) -> list[DisassemblyOrder]:
-    print(f"DESMONTE: creando órdenes para {len(items)} piezas") 
+    print(f"DESMONTE: creando órdenes para {len(items)} piezas")
     orders = []
-    # ... código existente ...
-    
-    # Al final, después del loop, enviar notificaciones por sucursal
+    priority = OrderPriority.urgent if is_urgent else OrderPriority.normal
+
+    for item in items:
+        part_id = uuid.UUID(item["part_id"])
+        part = await db.get(Part, part_id)
+        print(f"PARTE: {part_id} — status={part.status if part else 'NO ENCONTRADA'}")
+
+        if not part:
+            print("SKIP: pieza no encontrada")
+            continue
+
+        # Verificar que no tenga orden activa
+        existing = await db.execute(
+            select(DisassemblyOrder).where(
+                DisassemblyOrder.part_id == part_id,
+                DisassemblyOrder.status.in_([
+                    OrderStatus.pending,
+                    OrderStatus.taken,
+                    OrderStatus.in_progress,
+                ])
+            )
+        )
+        if existing.scalar_one_or_none():
+            print("SKIP: ya tiene orden activa")
+            continue
+
+        order_key = await _next_order_key(db)
+        branch_id = part.branch_id
+
+        order = DisassemblyOrder(
+            order_key=order_key,
+            part_id=part_id,
+            vehicle_id=part.vehicle_id,
+            branch_id=branch_id,
+            sale_id=sale_id,
+            priority=priority,
+            instructions=f"Venta {item.get('sale_key', '')} — {part.part_key}",
+            created_by_id=created_by_id,
+            status=OrderStatus.pending,
+        )
+        db.add(order)
+
+        # Cambiar estatus de la pieza a dismounting
+        prev_status = part.status
+        part.status = PartStatus.dismounting
+        db.add(PartStatusHistory(
+            part_id=part.id,
+            previous_status=prev_status,
+            new_status=PartStatus.dismounting,
+            changed_by_id=created_by_id,
+            reason="Venta confirmada — orden de desmonte generada automáticamente",
+        ))
+
+        orders.append(order)
+        print(f"ORDEN CREADA: {order_key}")
+
+    # Enviar notificaciones por sucursal
     try:
         from app.core.firebase import send_notification
         from app.models.user import User, UserRole
-        from sqlalchemy import select
 
-        # Agrupar órdenes por sucursal
         branch_ids = set(str(o.branch_id) for o in orders)
-        
         for branch_id in branch_ids:
             branch_orders = [o for o in orders if str(o.branch_id) == branch_id]
-            if not branch_orders:
-                continue
-
-            # Obtener tokens FCM de mecánicos y ayudantes de esa sucursal
             mechanics = await db.execute(
                 select(User).where(
                     User.branch_id == uuid.UUID(branch_id),
@@ -183,25 +234,20 @@ async def _create_disassembly_orders(
                 )
             )
             tokens = [u.fcm_token for u in mechanics.scalars().all()]
-
             if tokens:
-                part_names = ', '.join(o.instructions.split('—')[1].strip() 
-                                      if o.instructions and '—' in o.instructions 
-                                      else '' for o in branch_orders[:2])
                 await send_notification(
                     fcm_tokens=tokens,
                     title=f"🔧 {'🚨 URGENTE — ' if is_urgent else ''}Nueva orden de desmonte",
-                    body=f"{len(branch_orders)} pieza{'s' if len(branch_orders) > 1 else ''} — {part_names}",
+                    body=f"{len(branch_orders)} pieza{'s' if len(branch_orders) > 1 else ''} pendiente{'s' if len(branch_orders) > 1 else ''}",
                     data={"type": "new_order", "branch_id": branch_id},
                     is_urgent=is_urgent,
                 )
-                print(f"Notificación enviada a {len(tokens)} mecánicos en sucursal {branch_id}")
+                print(f"Notificación enviada a {len(tokens)} usuarios en sucursal {branch_id}")
     except Exception as e:
         print(f"Error enviando notificaciones: {e}")
 
     print(f"DESMONTE: {len(orders)} órdenes creadas")
     return orders
-
 
 # ─── CUSTOMERS ────────────────────────────────────────────────────────────────
 customers_router = APIRouter(prefix="/customers", tags=["clientes"])
