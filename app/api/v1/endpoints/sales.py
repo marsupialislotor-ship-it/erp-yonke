@@ -153,69 +153,50 @@ async def _build_items(db, items_in: list[SaleItemIn]) -> tuple[list[dict], floa
 
 
 async def _create_disassembly_orders(
-    db,
-    items: list[dict],
-    sale_id: uuid.UUID,
-    created_by_id: uuid.UUID,
-    is_urgent: bool = False,
+    db, items, sale_id, created_by_id, is_urgent=False
 ) -> list[DisassemblyOrder]:
-    """
-    Crea una orden de desmonte por cada pieza de la venta.
-    Agrupa internamente por sucursal para el control del dueño,
-    pero genera una orden por pieza para facilitar el trabajo del mecánico.
-    """
     orders = []
-    priority = OrderPriority.urgent if is_urgent else OrderPriority.normal
+    # ... código existente ...
+    
+    # Al final, después del loop, enviar notificaciones por sucursal
+    try:
+        from app.core.firebase import send_notification
+        from app.models.user import User, UserRole
+        from sqlalchemy import select
 
-    for item in items:
-        part_id = uuid.UUID(item["part_id"])
-        part = await db.get(Part, part_id)
-        if not part:
-            continue
+        # Agrupar órdenes por sucursal
+        branch_ids = set(str(o.branch_id) for o in orders)
+        
+        for branch_id in branch_ids:
+            branch_orders = [o for o in orders if str(o.branch_id) == branch_id]
+            if not branch_orders:
+                continue
 
-        # Verificar que la pieza no tenga ya una orden activa
-        existing = await db.execute(
-            select(DisassemblyOrder).where(
-                DisassemblyOrder.part_id == part_id,
-                DisassemblyOrder.status.in_([
-                    OrderStatus.pending,
-                    OrderStatus.taken,
-                    OrderStatus.in_progress,
-                ])
+            # Obtener tokens FCM de mecánicos y ayudantes de esa sucursal
+            mechanics = await db.execute(
+                select(User).where(
+                    User.branch_id == uuid.UUID(branch_id),
+                    User.role.in_([UserRole.mechanic, UserRole.helper]),
+                    User.is_active.is_(True),
+                    User.fcm_token.isnot(None),
+                )
             )
-        )
-        if existing.scalar_one_or_none():
-            # Ya tiene orden activa — no duplicar
-            continue
+            tokens = [u.fcm_token for u in mechanics.scalars().all()]
 
-        order_key = await _next_order_key(db)
-        branch_id = part.branch_id or uuid.UUID(item.get("branch_id", str(part.branch_id)))
-
-        order = DisassemblyOrder(
-            order_key=order_key,
-            part_id=part_id,
-            vehicle_id=part.vehicle_id,
-            branch_id=branch_id,
-            sale_id=sale_id,          # referencia a la venta
-            priority=priority,
-            instructions=f"Venta {item.get('sale_key', '')} — pieza {part.part_key}",
-            created_by_id=created_by_id,
-            status=OrderStatus.pending,
-        )
-        db.add(order)
-
-        # Cambiar estatus de la pieza a "en desmonte"
-        prev_status = part.status
-        part.status = PartStatus.dismounting
-        db.add(PartStatusHistory(
-            part_id=part.id,
-            previous_status=prev_status,
-            new_status=PartStatus.dismounting,
-            changed_by_id=created_by_id,
-            reason=f"Venta confirmada — orden de desmonte generada automáticamente",
-        ))
-
-        orders.append(order)
+            if tokens:
+                part_names = ', '.join(o.instructions.split('—')[1].strip() 
+                                      if o.instructions and '—' in o.instructions 
+                                      else '' for o in branch_orders[:2])
+                await send_notification(
+                    fcm_tokens=tokens,
+                    title=f"🔧 {'🚨 URGENTE — ' if is_urgent else ''}Nueva orden de desmonte",
+                    body=f"{len(branch_orders)} pieza{'s' if len(branch_orders) > 1 else ''} — {part_names}",
+                    data={"type": "new_order", "branch_id": branch_id},
+                    is_urgent=is_urgent,
+                )
+                print(f"Notificación enviada a {len(tokens)} mecánicos en sucursal {branch_id}")
+    except Exception as e:
+        print(f"Error enviando notificaciones: {e}")
 
     return orders
 
