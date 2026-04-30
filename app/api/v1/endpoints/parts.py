@@ -1,4 +1,5 @@
 import uuid
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
