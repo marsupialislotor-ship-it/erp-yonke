@@ -155,6 +155,7 @@ async def _build_items(db, items_in: list[SaleItemIn]) -> tuple[list[dict], floa
 async def _create_disassembly_orders(
     db, items, sale_id, created_by_id, is_urgent=False
 ) -> list[DisassemblyOrder]:
+    print(f"DESMONTE: creando órdenes para {len(items)} piezas") 
     orders = []
     # ... código existente ...
     
@@ -198,6 +199,7 @@ async def _create_disassembly_orders(
     except Exception as e:
         print(f"Error enviando notificaciones: {e}")
 
+    print(f"DESMONTE: {len(orders)} órdenes creadas")
     return orders
 
 
