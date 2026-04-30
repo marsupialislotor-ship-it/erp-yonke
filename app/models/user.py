@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Enum as SAEnum, JSON
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Enum as SAEnum, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.database import Base
@@ -54,6 +54,7 @@ class User(Base):
     password_hash:    Mapped[str]          = mapped_column(String(255), nullable=False)
     full_name:        Mapped[str]          = mapped_column(String(150), nullable=False)
     phone:            Mapped[str | None]   = mapped_column(String(20))
+    fcm_token:        Mapped[str | None]   = mapped_column(Text, nullable=True)  
     role:             Mapped[UserRole]     = mapped_column(SAEnum(UserRole), nullable=False)
     branch_id:        Mapped[uuid.UUID]    = mapped_column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False)
     is_active:        Mapped[bool]         = mapped_column(Boolean, default=True)
