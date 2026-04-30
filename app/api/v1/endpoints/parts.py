@@ -102,44 +102,50 @@ async def get_part_by_qr(part_key: str, db: DbSession, current_user: CurrentUser
         raise HTTPException(status_code=404, detail="Pieza no encontrada")
     return {"part": _part_to_detail(part)}
 
+# ─── POST /parts/{id}/media ───────────────────────────────────────────────────
+class PartMediaCreate(BaseModel):
+    storage_path: str      # URL pública de Supabase Storage
+    is_main:      bool = False
+    sort_order:   int = 0
 
-# ─── POST /parts ──────────────────────────────────────────────────────────────
-@router.post("", response_model=PartDetail, status_code=status.HTTP_201_CREATED)
-async def create_part(body: PartCreate, db: DbSession, current_user: CurrentUser):
-    vehicle = await db.get(Vehicle, body.vehicle_id)
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+@router.post("/{part_id}/media", response_model=PartDetail, status_code=status.HTTP_201_CREATED)
+async def add_part_media(
+    part_id: uuid.UUID,
+    body: PartMediaCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    part = await _get_part_or_404(db, part_id)
 
-    count_result = await db.execute(
-        select(func.count()).where(Part.vehicle_id == body.vehicle_id)
+    # Si es la primera foto, marcarla como principal automáticamente
+    existing_count = await db.execute(
+        select(func.count()).where(
+            select(func.count())
+            .where(Part.id == part_id)
+            .correlate()
+        )
     )
-    part_count = count_result.scalar_one() + 1
-    part_key = f"{vehicle.vehicle_key}-P{part_count:03d}"
-
-    part = Part(
-        part_key=part_key,
-        vehicle_id=body.vehicle_id,
-        branch_id=body.branch_id,
-        name=body.name,
-        brand=body.brand,
-        model=body.model,
-        year_from=body.year_from,
-        year_to=body.year_to,
-        specifications=body.specifications,
-        observations=body.observations,
-        condition_id=body.condition_id,
-        sale_price=body.sale_price,
-        has_warranty=body.has_warranty,
-        warranty_days=body.warranty_days,
-        status=PartStatus.in_vehicle,
-        registered_by_id=current_user.id,
+    
+    from app.models.inventory import PartMedia, MediaType
+    
+    # Contar fotos existentes
+    media_count = await db.execute(
+        select(func.count()).select_from(PartMedia).where(PartMedia.part_id == part_id)
     )
-    db.add(part)
-    await db.flush()
-    await db.refresh(part, ["condition", "media", "branch", "vehicle"])
+    count = media_count.scalar_one()
+    is_main = body.is_main or count == 0  # primera foto = principal
+
+    media = PartMedia(
+        part_id=part_id,
+        media_type=MediaType.photo,
+        storage_path=body.storage_path,
+        is_main=is_main,
+        sort_order=body.sort_order if body.sort_order else count,
+    )
+    db.add(media)
     await db.commit()
+    await db.refresh(part, ["condition", "media", "branch", "vehicle"])
     return _part_to_detail(part)
-
 
 # ─── PATCH /parts/{id} ────────────────────────────────────────────────────────
 @router.patch("/{part_id}", response_model=PartDetail)
