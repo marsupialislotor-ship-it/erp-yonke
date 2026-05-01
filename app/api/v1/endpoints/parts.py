@@ -155,23 +155,14 @@ async def add_part_media(
 ):
     part = await _get_part_or_404(db, part_id)
 
-    # Si es la primera foto, marcarla como principal automáticamente
-    existing_count = await db.execute(
-        select(func.count()).where(
-            select(func.count())
-            .where(Part.id == part_id)
-            .correlate()
-        )
-    )
-    
     from app.models.inventory import PartMedia, MediaType
-    
+
     # Contar fotos existentes
-    media_count = await db.execute(
+    media_count_result = await db.execute(
         select(func.count()).select_from(PartMedia).where(PartMedia.part_id == part_id)
     )
-    count = media_count.scalar_one()
-    is_main = body.is_main or count == 0  # primera foto = principal
+    count = media_count_result.scalar_one()
+    is_main = body.is_main or count == 0
 
     media = PartMedia(
         part_id=part_id,
