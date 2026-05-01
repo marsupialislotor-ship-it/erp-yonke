@@ -103,6 +103,43 @@ async def get_part_by_qr(part_key: str, db: DbSession, current_user: CurrentUser
         raise HTTPException(status_code=404, detail="Pieza no encontrada")
     return {"part": _part_to_detail(part)}
 
+# ─── POST /parts ──────────────────────────────────────────────────────────────
+@router.post("", response_model=PartDetail, status_code=status.HTTP_201_CREATED)
+async def create_part(body: PartCreate, db: DbSession, current_user: CurrentUser):
+    vehicle = await db.get(Vehicle, body.vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    count_result = await db.execute(
+        select(func.count()).where(Part.vehicle_id == body.vehicle_id)
+    )
+    part_count = count_result.scalar_one() + 1
+    part_key = f"{vehicle.vehicle_key}-P{part_count:03d}"
+
+    part = Part(
+        part_key=part_key,
+        vehicle_id=body.vehicle_id,
+        branch_id=body.branch_id,
+        name=body.name,
+        brand=body.brand,
+        model=body.model,
+        year_from=body.year_from,
+        year_to=body.year_to,
+        specifications=body.specifications,
+        observations=body.observations,
+        condition_id=body.condition_id,
+        sale_price=body.sale_price,
+        has_warranty=body.has_warranty,
+        warranty_days=body.warranty_days,
+        status=PartStatus.in_vehicle,
+        registered_by_id=current_user.id,
+    )
+    db.add(part)
+    await db.flush()
+    await db.refresh(part, ["condition", "media", "branch", "vehicle"])
+    await db.commit()
+    return _part_to_detail(part)
+
 # ─── POST /parts/{id}/media ───────────────────────────────────────────────────
 class PartMediaCreate(BaseModel):
     storage_path: str      # URL pública de Supabase Storage
