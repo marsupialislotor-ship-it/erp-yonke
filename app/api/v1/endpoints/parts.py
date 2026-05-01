@@ -217,7 +217,6 @@ async def _get_part_or_404(db: DbSession, part_id: uuid.UUID) -> Part:
 
 
 def _part_to_list_item(p: Part) -> PartListItem:
-    print(f"PART {p.part_key}: main_photo_url={p.main_photo_url}, media_count={len(p.media)}")
     return PartListItem(
   
         id=p.id,
