@@ -42,6 +42,7 @@ class UserOut(BaseModel):
     phone:            str | None = None
     dashboard_config: dict | None = None
     initials:         str
+    permissions:      dict[str, bool] = {}  # ← agregar
 
     model_config = {"from_attributes": True}
 

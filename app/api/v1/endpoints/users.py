@@ -41,7 +41,29 @@ class PaginatedUsers(BaseModel):
     items: list[UserOut]
 
 
-def _user_out(user: User) -> UserOut:
+async def _get_user_permissions(db, user) -> dict[str, bool]:
+    """Obtiene permisos efectivos: permisos del rol + excepciones del usuario"""
+    from sqlalchemy import text
+    
+    # Permisos del rol
+    role_result = await db.execute(
+        text("SELECT permission_code, is_enabled FROM role_permissions WHERE role = :role"),
+        {"role": user.role.value}
+    )
+    perms = {row.permission_code: row.is_enabled for row in role_result}
+    
+    # Excepciones del usuario (sobreescriben el rol)
+    user_result = await db.execute(
+        text("SELECT permission_code, is_enabled FROM user_permissions WHERE user_id = :uid"),
+        {"uid": str(user.id)}
+    )
+    for row in user_result:
+        perms[row.permission_code] = row.is_enabled
+    
+    return perms
+
+
+def _user_out(user: User, permissions: dict = {}) -> UserOut:
     return UserOut(
         id=user.id,
         email=user.email,
@@ -50,6 +72,7 @@ def _user_out(user: User) -> UserOut:
         phone=user.phone,
         initials=user.initials,
         dashboard_config=user.dashboard_config,
+        permissions=permissions,
         branch=BranchOut(
             id=user.branch.id,
             name=user.branch.name,
@@ -66,7 +89,8 @@ async def get_me(current_user: CurrentUser, db: DbSession):
         select(User).options(selectinload(User.branch)).where(User.id == current_user.id)
     )
     user = result.scalar_one()
-    return _user_out(user)
+    permissions = await _get_user_permissions(db, user)
+    return _user_out(user, permissions)
 
 
 # ─── GET /users ───────────────────────────────────────────────────────────────
