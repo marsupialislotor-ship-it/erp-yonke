@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.security import verify_password, decode_token, create_token_pair, create_access_token
 from app.core.deps import get_db, CurrentUser
 from app.models.user import User, RefreshToken
+from sqlalchemy import select, update, text
 from app.schemas.auth import (
     LoginRequest, LoginResponse, RefreshRequest, RefreshResponse,
     LogoutRequest, RecoverRequest, MessageResponse, UserOut, BranchOut,
@@ -20,7 +21,23 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _user_to_out(user: User) -> UserOut:
+async def _user_to_out(user: User, db: AsyncSession) -> UserOut:
+    # Permisos base del rol
+    role_result = await db.execute(
+        text("SELECT permission_code, is_enabled FROM role_permissions WHERE role = :role"),
+        {"role": user.role.value}
+    )
+    role_perms = {row.permission_code: row.is_enabled for row in role_result}
+
+    # Excepciones del usuario
+    user_result = await db.execute(
+        text("SELECT permission_code, is_enabled FROM user_permissions WHERE user_id = :uid"),
+        {"uid": str(user.id)}
+    )
+    user_perms = {row.permission_code: row.is_enabled for row in user_result}
+
+    effective = {**role_perms, **user_perms}
+
     return UserOut(
         id=user.id,
         email=user.email,
@@ -29,6 +46,7 @@ def _user_to_out(user: User) -> UserOut:
         phone=user.phone,
         initials=user.initials,
         dashboard_config=user.dashboard_config,
+        permissions=effective,
         branch=BranchOut(
             id=user.branch.id,
             name=user.branch.name,
@@ -87,9 +105,9 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     return LoginResponse(
-        **tokens,
-        user=_user_to_out(user),
-    )
+    **tokens,
+    user=await _user_to_out(user, db),
+)
 
 
 # ─── POST /auth/refresh ───────────────────────────────────────────────────────
