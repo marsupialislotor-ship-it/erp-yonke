@@ -28,6 +28,7 @@ class PartStatus(str, enum.Enum):
     reserved     = "reserved"
     sold         = "sold"
     transferred  = "transferred"
+    shipped      = "shipped"    
 
 
 class MediaType(str, enum.Enum):

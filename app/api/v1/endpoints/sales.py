@@ -499,4 +499,57 @@ async def create_sale(
         disassembly_order_ids=[str(o.id) for o in orders],
     )
 
+class DeliverBody(BaseModel):
+    tracking_number: str | None = None
+    delivery_notes:  str | None = None
+    has_shipping:    bool = False  # True = paquetería, False = recoge en yonke
+
+@sales_router.post("/{sale_id}/deliver", response_model=SaleOut)
+async def deliver_sale(
+    sale_id: uuid.UUID,
+    body: DeliverBody,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    result = await db.execute(
+        select(Sale).options(selectinload(Sale.customer), selectinload(Sale.seller))
+        .where(Sale.id == sale_id)
+    )
+    sale = result.scalar_one_or_none()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+
+    # Actualizar status de la venta
+    sale.status = SaleStatus.delivered
+
+    # Actualizar piezas según tipo de entrega
+    for item in sale.items or []:
+        part = await db.get(Part, uuid.UUID(item["part_id"]))
+        if not part:
+            continue
+        prev = part.status
+        new_status = PartStatus.shipped if body.has_shipping else PartStatus.sold
+        part.status = new_status
+        db.add(PartStatusHistory(
+            part_id=part.id,
+            previous_status=prev,
+            new_status=new_status,
+            changed_by_id=current_user.id,
+            reason=f"Entrega confirmada · {body.tracking_number or 'Recoge en yonke'}",
+        ))
+
+    await db.commit()
+    await db.refresh(sale)
+
+    customer = await db.get(Customer, sale.customer_id) if sale.customer_id else None
+    return SaleOut(
+        id=sale.id, sale_key=sale.sale_key, branch_id=sale.branch_id,
+        status=sale.status.value, channel=sale.channel.value,
+        payment_method=sale.payment_method.value,
+        total_amount=float(sale.total_amount), items=sale.items or [],
+        customer=_customer_out(customer), notes=sale.notes,
+        seller_name=current_user.full_name, created_at=sale.created_at,
+        disassembly_order_ids=[],
+    )
+
 router.include_router(sales_router)
