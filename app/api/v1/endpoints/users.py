@@ -202,13 +202,13 @@ async def update_dashboard_config(
         select(User).options(selectinload(User.branch)).where(User.id == current_user.id)
     )
     user = result.scalar_one()
-    try:
-        user.dashboard_config = body.dashboard_config
-        await db.commit()
-    except Exception as e:
-        print(f"ERROR dashboard_config: {e}")
-        raise
-    await db.refresh(user)
+    user.dashboard_config = body.dashboard_config
+    await db.commit()
+    # Recargar con branch eager loaded
+    result2 = await db.execute(
+        select(User).options(selectinload(User.branch)).where(User.id == current_user.id)
+    )
+    user = result2.scalar_one()
     permissions = await _get_user_permissions(db, user)
     return _user_out(user, permissions)
 
