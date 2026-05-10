@@ -202,8 +202,12 @@ async def update_dashboard_config(
         select(User).options(selectinload(User.branch)).where(User.id == current_user.id)
     )
     user = result.scalar_one()
-    user.dashboard_config = body.dashboard_config
-    await db.commit()
+    try:
+        user.dashboard_config = body.dashboard_config
+        await db.commit()
+    except Exception as e:
+        print(f"ERROR dashboard_config: {e}")
+        raise
     await db.refresh(user)
     permissions = await _get_user_permissions(db, user)
     return _user_out(user, permissions)
